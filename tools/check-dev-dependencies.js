@@ -1,3 +1,5 @@
+const semverSatisfies = require('semver/functions/satisfies');
+
 var checkVersion, exec, execAsync, exitCode;
 
 exitCode = 0;
@@ -18,21 +20,28 @@ execAsync = function(command) {
   });
 };
 
-checkVersion = async function(dependency, version) {
+checkVersion = async function(dependency, versionSpec, version) {
   var latest, stdout;
   ({stdout} = (await execAsync(`npm --json info ${dependency}`)));
   ({latest} = JSON.parse(stdout)["dist-tags"]);
   if (latest !== version) {
-    exitCode = 1;
-    return console.log(`[OLD] ${dependency} is out of date ${version} vs. ${latest}`);
+    if (semverSatisfies(latest, versionSpec)) {
+      return console.log(`[STALE] ${dependency} can be updated from ${version} to ${latest}`);
+    } else {
+      exitCode = 1;
+      return console.log(`[OLD] ${dependency} is out of date ${version} (${versionSpec}) vs. ${latest}`);
+    }
   }
 };
 
 (async function() {
   var dependency, project;
   project = require("../package.json");
+  const packageLock = require("../package-lock.json");
+  const checks = [];
   for (dependency in project.devDependencies) {
-    await checkVersion(dependency, project.devDependencies[dependency]);
+    checks.push(checkVersion(dependency, project.devDependencies[dependency], packageLock.packages[`node_modules/${dependency}`]?.version));
   }
+  await Promise.all(checks);
   process.exit(exitCode)
 })();
